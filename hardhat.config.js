@@ -42,7 +42,7 @@ module.exports = {
   },
   etherscan: {
     apiKey: {
-      sepolia: 'E96HBT7SDPGZ7BCZR814T2VKTZYD9FSCSY',
+      sepolia: process.env.ETHERSCAN_API_KEY,
       holesky: process.env.ETHERSCAN_API_KEY,
       arbitrumSepolia: process.env.ARBITRUM_ETHERSCAN_API_KEY,
     },
