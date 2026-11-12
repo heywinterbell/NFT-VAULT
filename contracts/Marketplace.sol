@@ -7,6 +7,11 @@ import "./NFTContract.sol";
 import "./VaultToken.sol";
 
 contract Marketplace is Ownable, ReentrancyGuard {
+    /// @notice The NFT contract whose fractional shares this marketplace trades.
+    /// Stored once at deployment (immutable) and used to look up the
+    /// VaultToken for a given tokenId.
+    NFTContract public immutable nftContract;
+
     struct Listing {
         address seller;
         uint256 shares;
@@ -37,7 +42,9 @@ contract Marketplace is Ownable, ReentrancyGuard {
     
     event ListingCancelled(uint256 indexed tokenId, address indexed seller);
     
-    constructor() {
+    constructor(address _nftContract) {
+        require(_nftContract != address(0), "NFT contract address required");
+        nftContract = NFTContract(_nftContract);
         _transferOwnership(msg.sender);
     }
     
@@ -48,9 +55,11 @@ contract Marketplace is Ownable, ReentrancyGuard {
     ) external nonReentrant {
         require(shares > 0, "Must list at least 1 share");
         require(pricePerShare > 0, "Price must be greater than 0");
-        
-        // Get the vault token contract for this NFT
-        NFTContract nftContract = NFTContract(msg.sender); // Assuming called through NFT contract
+
+        // Get the vault token contract for this NFT from the stored
+        // NFT contract. (Previously this used NFTContract(msg.sender),
+        // which treated the calling *user* as the NFT contract, so
+        // every call reverted.)
         address vaultAddress = nftContract.getVaultContract(tokenId);
         VaultToken vaultToken = VaultToken(vaultAddress);
         
@@ -83,9 +92,8 @@ contract Marketplace is Ownable, ReentrancyGuard {
         // Calculate platform fee
         uint256 fee = (totalCost * platformFee) / 10000;
         uint256 sellerAmount = totalCost - fee;
-        
-        // Get vault token contract
-        NFTContract nftContract = NFTContract(msg.sender); // This needs to be passed properly
+
+        // Get vault token contract from the stored NFT contract.
         address vaultAddress = nftContract.getVaultContract(tokenId);
         VaultToken vaultToken = VaultToken(vaultAddress);
         
@@ -115,9 +123,8 @@ contract Marketplace is Ownable, ReentrancyGuard {
         Listing storage listing = listings[tokenId];
         require(listing.seller == msg.sender, "Only seller can cancel");
         require(listing.active, "Listing not active");
-        
-        // Return vault tokens to seller
-        NFTContract nftContract = NFTContract(msg.sender); // This needs to be passed properly
+
+        // Return vault tokens to seller (from the stored NFT contract).
         address vaultAddress = nftContract.getVaultContract(tokenId);
         VaultToken vaultToken = VaultToken(vaultAddress);
         

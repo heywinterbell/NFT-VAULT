@@ -41,16 +41,36 @@ async function main() {
   const nftVaultAddress = await nftVault.getAddress()
   console.log("✅ NFTVault deployed to:", nftVaultAddress)
 
+  // Deploy VaultFactory (creates one VaultToken ERC-20 per fractional NFT)
+  console.log("\n5. 🏭 Deploying VaultFactory...")
+  const VaultFactory = await ethers.getContractFactory("VaultFactory")
+  const vaultFactory = await VaultFactory.deploy()
+  await vaultFactory.waitForDeployment()
+  const vaultFactoryAddress = await vaultFactory.getAddress()
+  console.log("✅ VaultFactory deployed to:", vaultFactoryAddress)
+
+  // Deploy NFTContract (fractional NFTs backed by VaultTokens)
+  console.log("\n6. 🖼️ Deploying NFTContract...")
+  const NFTContract = await ethers.getContractFactory("NFTContract")
+  const nftContract = await NFTContract.deploy(vaultFactoryAddress)
+  await nftContract.waitForDeployment()
+  const nftContractAddress = await nftContract.getAddress()
+  console.log("✅ NFTContract deployed to:", nftContractAddress)
+
   // Deploy Marketplace
-  console.log("\n5. 🏪 Deploying Marketplace...")
+  // The Marketplace needs the NFTContract address at deployment so it can
+  // look up the VaultToken for a tokenId. (Previously it used
+  // NFTContract(msg.sender), which treated the caller as the contract and
+  // made every marketplace call revert.)
+  console.log("\n7. 🏪 Deploying Marketplace...")
   const Marketplace = await ethers.getContractFactory("Marketplace")
-  const marketplace = await Marketplace.deploy()
+  const marketplace = await Marketplace.deploy(nftContractAddress)
   await marketplace.waitForDeployment()
   const marketplaceAddress = await marketplace.getAddress()
   console.log("✅ Marketplace deployed to:", marketplaceAddress)
 
   // Setup initial configuration
-  console.log("\n6. ⚙️ Setting up initial configuration...")
+  console.log("\n8. ⚙️ Setting up initial configuration...")
 
   // Mint some VaultCoins to deployer for testing
   const mintAmount = ethers.parseEther("50000") // 50,000 VAULT tokens
@@ -67,6 +87,8 @@ async function main() {
   console.log("VaultCoin:", vaultCoinAddress)
   console.log("FiatGateway:", fiatGatewayAddress)
   console.log("NFTVault:", nftVaultAddress)
+  console.log("VaultFactory:", vaultFactoryAddress)
+  console.log("NFTContract:", nftContractAddress)
   console.log("Marketplace:", marketplaceAddress)
   console.log("Deployer:", deployer.address)
 
@@ -78,6 +100,8 @@ async function main() {
       vaultCoin: vaultCoinAddress,
       fiatGateway: fiatGatewayAddress,
       nftVault: nftVaultAddress,
+      vaultFactory: vaultFactoryAddress,
+      nftContract: nftContractAddress,
       marketplace: marketplaceAddress,
     },
     deployer: deployer.address,
@@ -95,6 +119,8 @@ async function main() {
     NEXT_PUBLIC_VAULT_COIN_ADDRESS: vaultCoinAddress,
     NEXT_PUBLIC_FIAT_GATEWAY_ADDRESS: fiatGatewayAddress,
     NEXT_PUBLIC_NFT_VAULT_ADDRESS: nftVaultAddress,
+    NEXT_PUBLIC_VAULT_FACTORY_ADDRESS: vaultFactoryAddress,
+    NEXT_PUBLIC_NFT_CONTRACT_ADDRESS: nftContractAddress,
     NEXT_PUBLIC_MARKETPLACE_ADDRESS: marketplaceAddress,
   }
 
@@ -129,8 +155,18 @@ async function main() {
       })
 
       await hre.run("verify:verify", {
-        address: marketplaceAddress,
+        address: vaultFactoryAddress,
         constructorArguments: [],
+      })
+
+      await hre.run("verify:verify", {
+        address: nftContractAddress,
+        constructorArguments: [vaultFactoryAddress],
+      })
+
+      await hre.run("verify:verify", {
+        address: marketplaceAddress,
+        constructorArguments: [nftContractAddress],
       })
 
       console.log("✅ All contracts verified on Etherscan")
