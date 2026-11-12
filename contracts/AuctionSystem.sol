@@ -91,7 +91,13 @@ contract AuctionSystem is ReentrancyGuard, Pausable, Ownable {
         // Verify seller has enough shares
         uint256 sellerShares = nftVault.getShareHolderBalance(_tokenId, msg.sender);
         require(sellerShares >= _shares, "Not enough shares to auction");
-        
+
+        // Escrow the shares in this contract (via NFTVault.transferShares)
+        // so the seller cannot sell the same shares elsewhere while the
+        // auction runs. They are delivered to the winner on settlement,
+        // or returned to the seller if the auction is cancelled / has no bids.
+        nftVault.transferShares(_tokenId, msg.sender, address(this), _shares);
+
         uint256 auctionId = _auctionIdCounter.current();
         _auctionIdCounter.increment();
         
@@ -172,32 +178,53 @@ contract AuctionSystem is ReentrancyGuard, Pausable, Ownable {
             // Calculate fees
             uint256 platformFee = (auction.currentBid * platformFeePercentage) / 10000;
             uint256 sellerAmount = auction.currentBid - platformFee;
-            
+
             // Transfer payment to seller
             require(vaultCoin.transfer(auction.seller, sellerAmount), "Payment to seller failed");
-            
+
             // Transfer platform fee
             require(vaultCoin.transfer(owner(), platformFee), "Platform fee transfer failed");
-            
-            // Note: In a real implementation, you would need to handle share transfer
-            // This would require additional logic in NFTVault contract
-            
+
+            // Deliver the escrowed shares to the winner. (Previously the
+            // winner paid but never received any shares — the seller kept
+            // both the shares and the money.)
+            nftVault.transferShares(
+                auction.tokenId,
+                address(this),
+                auction.currentBidder,
+                auction.shares
+            );
+
             emit AuctionSettled(_auctionId, auction.currentBidder, auction.currentBid, block.timestamp);
         } else {
-            // No bids, auction failed
+            // No bids: return the escrowed shares to the seller.
+            nftVault.transferShares(
+                auction.tokenId,
+                address(this),
+                auction.seller,
+                auction.shares
+            );
             emit AuctionCancelled(_auctionId, block.timestamp);
         }
     }
     
     function cancelAuction(uint256 _auctionId) external nonReentrant {
         Auction storage auction = auctions[_auctionId];
-        
+
         require(auction.seller == msg.sender, "Only seller can cancel");
         require(auction.active, "Auction not active");
         require(auction.currentBidder == address(0), "Cannot cancel with active bids");
-        
+
         auction.active = false;
-        
+
+        // Return the escrowed shares to the seller.
+        nftVault.transferShares(
+            auction.tokenId,
+            address(this),
+            auction.seller,
+            auction.shares
+        );
+
         emit AuctionCancelled(_auctionId, block.timestamp);
     }
     
@@ -250,11 +277,5 @@ contract AuctionSystem is ReentrancyGuard, Pausable, Ownable {
     
     function unpause() external onlyOwner {
         _unpause();
-    }
-    
-    function emergencyWithdraw() external onlyOwner {
-        uint256 balance = vaultCoin.balanceOf(address(this));
-        require(balance > 0, "No balance to withdraw");
-        vaultCoin.transfer(owner(), balance);
     }
 }
