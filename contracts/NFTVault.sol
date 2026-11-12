@@ -204,6 +204,54 @@ contract NFTVault is ERC721, Ownable, ReentrancyGuard, Pausable {
         emit SharesPurchased(_tokenId, msg.sender, ownerOf(_tokenId), _shares, totalPrice, block.timestamp);
     }
     
+    // Contracts authorized to move shares between holders (e.g. the
+    // AuctionSystem, which escrows shares at auction creation and
+    // transfers them to the winner on settlement). Only the owner can
+    // authorize a manager.
+    mapping(address => bool) public authorizedShareManagers;
+
+    event ShareManagerUpdated(address indexed manager, bool authorized);
+    event SharesTransferred(
+        uint256 indexed tokenId,
+        address indexed from,
+        address indexed to,
+        uint256 shares
+    );
+
+    /// @notice Authorize (or revoke) a contract to move shares between holders.
+    function setShareManager(address manager, bool authorized) external onlyOwner {
+        require(manager != address(0), "Invalid manager address");
+        authorizedShareManagers[manager] = authorized;
+        emit ShareManagerUpdated(manager, authorized);
+    }
+
+    /// @notice Move `shares` of `tokenId` from one holder to another.
+    /// Only an authorized share manager (e.g. AuctionSystem) can call this.
+    /// Used to escrow shares when an auction is created and to deliver them
+    /// to the winner (or back to the seller) when it ends.
+    function transferShares(
+        uint256 tokenId,
+        address from,
+        address to,
+        uint256 shares
+    ) external {
+        require(authorizedShareManagers[msg.sender], "Not an authorized share manager");
+        require(_exists(tokenId), "NFT does not exist");
+        require(to != address(0), "Invalid recipient");
+        require(shares > 0, "Must transfer at least 1 share");
+        require(nftData[tokenId].shareHolders[from] >= shares, "Insufficient shares");
+
+        nftData[tokenId].shareHolders[from] -= shares;
+
+        if (nftData[tokenId].shareHolders[to] == 0) {
+            nftData[tokenId].shareHoldersList.push(to);
+            userOwnedShares[to].push(tokenId);
+        }
+        nftData[tokenId].shareHolders[to] += shares;
+
+        emit SharesTransferred(tokenId, from, to, shares);
+    }
+
     function listMoreShares(uint256 _tokenId, uint256 _shares, uint256 _pricePerShare) external whenNotPaused {
         require(ownerOf(_tokenId) == msg.sender, "Only NFT owner can list shares");
         require(nftData[_tokenId].shareHolders[msg.sender] >= _shares, "Not enough shares to list");
