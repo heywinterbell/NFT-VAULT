@@ -35,7 +35,12 @@ contract VaultFactory is Ownable {
             totalSupply,
             name,
             symbol,
-            tx.origin // The original caller (NFT creator)
+            // Mint to the NFT contract (escrow). The NFT contract holds the
+            // listed shares and transfers them to buyers in buyShares, and
+            // transfers the creator's retained shares to the creator at mint.
+            // Minting to tx.origin left the NFT contract with a zero balance,
+            // so every buyShares call reverted.
+            nftContract
         );
         
         address vaultAddress = address(vaultToken);

@@ -93,7 +93,17 @@ contract NFTContract is ERC721, Ownable, ReentrancyGuard {
             isListed: sharesToList > 0,
             createdAt: block.timestamp
         });
-        
+
+        // Transfer the creator's retained (unlisted) shares to them.
+        // The listed shares stay in this contract (escrow) so buyShares
+        // can transfer them to buyers. The VaultToken supply was minted
+        // to this contract by the factory.
+        uint256 retainedShares = totalShares - sharesToList;
+        if (retainedShares > 0) {
+            VaultToken vaultToken = VaultToken(vaultContract);
+            require(vaultToken.transfer(msg.sender, retainedShares), "Retained shares transfer failed");
+        }
+
         creatorNFTs[msg.sender].push(tokenId);
         
         emit NFTMinted(tokenId, msg.sender, totalShares, sharesToList, vaultContract);
@@ -137,14 +147,21 @@ contract NFTContract is ERC721, Ownable, ReentrancyGuard {
         require(msg.sender == nftInfo[tokenId].creator, "Only creator can list shares");
         require(shares > 0, "Must list at least 1 share");
         require(pricePerShare > 0, "Price must be greater than 0");
-        
+
         VaultToken vaultToken = VaultToken(nftInfo[tokenId].vaultContract);
         require(vaultToken.balanceOf(msg.sender) >= shares, "Insufficient vault tokens");
-        
-        nftInfo[tokenId].availableShares = shares;
+
+        // Escrow the listed shares in this contract so buyShares can
+        // transfer them to buyers. The creator must approve this contract
+        // to spend `shares` VaultTokens before calling listShares.
+        // (Previously the tokens were never escrowed, so buyShares always
+        // reverted: the contract held zero VaultTokens.)
+        require(vaultToken.transferFrom(msg.sender, address(this), shares), "Escrow transfer failed");
+
+        nftInfo[tokenId].availableShares += shares;
         nftInfo[tokenId].pricePerShare = pricePerShare;
         nftInfo[tokenId].isListed = true;
-        
+
         emit SharesListed(tokenId, msg.sender, shares, pricePerShare);
     }
     
