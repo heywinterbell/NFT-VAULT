@@ -16,6 +16,9 @@ contract NFTVault is ERC721, Ownable, ReentrancyGuard, Pausable {
     
     uint256 public mintingFee = 10 * 10**18; // 10 VAULT tokens
     uint256 public platformFeePercentage = 250; // 2.5% in basis points
+    /// @notice Maximum royalty a creator can set, in basis points (1000 = 10%).
+    /// Governable via Governance (ChangeRoyaltyLimit proposals).
+    uint256 public maxRoyaltyPercentage = 1000;
     
     struct NFTData {
         string ipfsHash;
@@ -104,7 +107,7 @@ contract NFTVault is ERC721, Ownable, ReentrancyGuard, Pausable {
     ) external nonReentrant whenNotPaused returns (uint256) {
         require(bytes(_ipfsHash).length > 0, "IPFS hash required");
         require(bytes(_title).length > 0, "Title required");
-        require(_royaltyPercentage <= 1000, "Royalty cannot exceed 10%");
+        require(_royaltyPercentage <= maxRoyaltyPercentage, "Royalty exceeds maximum");
         require(_totalShares > 0, "Total shares must be greater than 0");
         require(_sharesToList <= _totalShares, "Cannot list more shares than total");
         require(vaultCoin.transferFrom(msg.sender, owner(), mintingFee), "Minting fee payment failed");
@@ -279,6 +282,11 @@ contract NFTVault is ERC721, Ownable, ReentrancyGuard, Pausable {
     function setPlatformFeePercentage(uint256 _newFee) external onlyOwner {
         require(_newFee <= 1000, "Fee cannot exceed 10%");
         platformFeePercentage = _newFee;
+    }
+
+    function setMaxRoyaltyPercentage(uint256 _newMax) external onlyOwner {
+        require(_newMax <= 5000, "Max royalty cannot exceed 50%");
+        maxRoyaltyPercentage = _newMax;
     }
     
     function pause() external onlyOwner {

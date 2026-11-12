@@ -5,17 +5,27 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "./VaultCoin.sol";
+import "./NFTVault.sol";
 
 contract Governance is ReentrancyGuard, Ownable {
     using Counters for Counters.Counter;
-    
+
     VaultCoin public vaultCoin;
-    
+    /// @notice The NFTVault whose fees this governance can change.
+    /// The Governance contract must be the owner of the NFTVault (or be
+    /// granted the relevant roles) for execution to succeed.
+    NFTVault public nftVault;
+
     Counters.Counter private _proposalIdCounter;
-    
+
     uint256 public constant VOTING_PERIOD = 7 days;
     uint256 public constant EXECUTION_DELAY = 2 days;
-    uint256 public constant PROPOSAL_THRESHOLD = 1000 * 10**18; // 1000 VAULT tokens
+    // Minimum voting power needed to create a proposal. Voting power is
+    // sqrt(VAULT balance), so 10 voting power ~= 100 VAULT tokens — reachable
+    // for an engaged user. (Previously 1000 voting power, which needs
+    // 1,000,000 VAULT — the entire initial supply — so no one could ever
+    // create a proposal.)
+    uint256 public constant PROPOSAL_THRESHOLD = 10;
     uint256 public constant QUORUM_PERCENTAGE = 10; // 10% of total voting power
     
     enum ProposalState {
@@ -86,8 +96,9 @@ contract Governance is ReentrancyGuard, Ownable {
     event ProposalExecuted(uint256 indexed proposalId);
     event ProposalCancelled(uint256 indexed proposalId);
     
-    constructor(address _vaultCoin) {
+    constructor(address _vaultCoin, address _nftVault) {
         vaultCoin = VaultCoin(payable(_vaultCoin));
+        nftVault = NFTVault(_nftVault);
         _transferOwnership(msg.sender);
     }
     
@@ -172,14 +183,23 @@ contract Governance is ReentrancyGuard, Ownable {
     }
     
     function _executeProposalAction(Proposal memory proposal) internal {
-        // Implementation would depend on the specific proposal type
-        // This is a simplified version
+        // proposalData is abi.encode(uint256 newValue) for the fee/limit
+        // proposals. The Governance contract must own the NFTVault for
+        // these calls to succeed (transfer NFTVault ownership to this
+        // contract after deployment).
         if (proposal.proposalType == ProposalType.ChangeMintingFee) {
-            // Would call NFTVault.setMintingFee() with new fee
+            uint256 newFee = abi.decode(proposal.proposalData, (uint256));
+            nftVault.setMintingFee(newFee);
         } else if (proposal.proposalType == ProposalType.ChangePlatformFee) {
-            // Would call relevant contracts to update platform fee
+            uint256 newFee = abi.decode(proposal.proposalData, (uint256));
+            nftVault.setPlatformFeePercentage(newFee);
+        } else if (proposal.proposalType == ProposalType.ChangeRoyaltyLimit) {
+            uint256 newLimit = abi.decode(proposal.proposalData, (uint256));
+            nftVault.setMaxRoyaltyPercentage(newLimit);
         }
-        // Add more proposal types as needed
+        // AddFeature and Emergency have no on-chain action: they record
+        // the community's decision (via the ProposalExecuted event) and
+        // are carried out off-chain by the team.
     }
     
     function cancelProposal(uint256 _proposalId) external {
